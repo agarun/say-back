@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "say-back",
+  "description": "Hear Claude's replies spoken aloud, on-device",
+  "owner": { "name": "Aaron Agarunov" },
+  "plugins": [{ "name": "say-back", "source": "./" }]
+}

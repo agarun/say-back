@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "say-back",
+  "displayName": "Say-back",
+  "version": "1.0.0",
+  "description": "Reads Claude's replies aloud with Kokoro-82M, a fast on-device voice, with a player bar above the prompt. No API keys, nothing leaves your machine.",
+  "author": {
+    "name": "Aaron Agarunov"
+  },
+  "license": "MIT",
+  "keywords": ["tts", "text-to-speech", "voice", "accessibility", "kokoro"],
+  "userConfig": {
+    "enabled": {
+      "type": "boolean",
+      "title": "Speak replies",
+      "description": "Turn off to mute without disabling the plugin",
+      "default": true
+    },
+    "voice": {
+      "type": "string",
+      "title": "Voice",
+      "description": "Kokoro voice ID, e.g. af_heart, af_bella, am_michael, bf_emma, bm_george",
+      "default": "af_heart"
+    },
+    "max_chars": {
+      "type": "number",
+      "title": "Max characters",
+      "description": "Longer replies stop at the last full sentence before this; 0 reads everything",
+      "default": 1500,
+      "min": 0
+    }
+  },
+  "types": "./types/index.d.ts",
+  "homepage": "https://github.com/agarun/say-back",
+  "repository": "https://github.com/agarun/say-back"
+}

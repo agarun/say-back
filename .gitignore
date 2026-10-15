@@ -1,0 +1,4 @@
+__pycache__/
+*.part
+mise.toml
+node_modules/

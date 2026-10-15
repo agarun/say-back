@@ -1,0 +1,13 @@
+{
+  "name": "say-back",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "format": "pnpm exec oxfmt .",
+    "lint": "pnpm exec oxlint --fix ."
+  },
+  "devDependencies": {
+    "oxfmt": "^0.55.0",
+    "oxlint": "^1.70.0"
+  }
+}
