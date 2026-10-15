@@ -21,7 +21,13 @@ const clamp = (n: number, lo: number, hi: number) =>
 let config = { voice: "af_heart", maxChars: 1500 };
 let stop = () => {};
 let ctl = ""; // the player's control file
-let steering = { paused: false, volume: 1, speed: 1.1, seek: null as number | null, seq: 0 };
+let steering = {
+  paused: false,
+  volume: 1,
+  speed: 1.1,
+  seek: null as number | null,
+  seq: 0,
+};
 
 async function steer($: EngineInterface, change: Partial<typeof steering>) {
   steering = { ...steering, ...change, seq: steering.seq + 1 };
@@ -33,7 +39,12 @@ async function play($: EngineInterface, i: number, start = 0) {
   const text = (await read($, replies))[i];
   if (text === undefined) return;
   await update($, index, () => i);
-  await update($, playback, () => ({ pos: start, dur: 0, paused: false, done: false }));
+  await update($, playback, () => ({
+    pos: start,
+    dur: 0,
+    paused: false,
+    done: false,
+  }));
   steering = {
     paused: false,
     volume: await read($, volume),
@@ -79,7 +90,7 @@ async function play($: EngineInterface, i: number, start = 0) {
       if ((await child.result).code) throw new Error(errors.trim().split("\n").pop());
     } catch (err) {
       $.ui.toast(
-        `Say-back couldn't play: ${err instanceof Error ? err.message : err}. Is uv installed?`,
+        `say-back couldn't play: ${err instanceof Error ? err.message : err}. Is uv installed?`,
       );
       return update($, playback, () => null);
     }

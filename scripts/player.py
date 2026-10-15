@@ -10,7 +10,13 @@ The mod steers playback by writing {"paused", "volume", "speed", "seek", "seq"} 
 `--setup` only downloads the model.
 """
 
-import json, os, re, sys, threading, time, urllib.request
+import json
+import os
+import re
+import sys
+import threading
+import time
+import urllib.request
 from pathlib import Path
 
 DATA = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".cache") / "say-back"

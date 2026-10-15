@@ -1,4 +1,4 @@
-# Say-back
+# say-back
 
 A Claude Code plugin that reads each of Claude's replies aloud using [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M), a small, natural-sounding voice model that runs on-device.
 
