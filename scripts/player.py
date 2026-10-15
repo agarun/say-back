@@ -2,7 +2,7 @@
 # requires-python = ">=3.10"
 # dependencies = ["kokoro-onnx>=0.6.1,<0.7", "sounddevice>=0.5"]
 # ///
-"""Say-back's player: speaks one reply with Kokoro-82M, on-device.
+"""Play replies on-device
 
 stdin:  {"text", "voice", "speed", "volume", "max_chars", "start"}
 stdout: {"ctl": path} once, then {"pos", "dur", "paused", "done"} lines, four a second.
@@ -13,12 +13,18 @@ The mod steers playback by writing {"paused", "volume", "speed", "seek", "seq"} 
 import json, os, re, sys, threading, time, urllib.request
 from pathlib import Path
 
-# Our own cache, never CLAUDE_PLUGIN_DATA: a mod's child inherits the session's environment,
-# where that variable can name another plugin's folder.
 DATA = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".cache") / "say-back"
 BASE = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
 FILES = ("kokoro-v1.0.int8.onnx", "voices-v1.0.bin")
-LANGS = {"a": "en-us", "b": "en-gb", "e": "es", "f": "fr-fr", "h": "hi", "i": "it", "p": "pt-br"}
+LANGS = {
+    "a": "en-us",
+    "b": "en-gb",
+    "e": "es",
+    "f": "fr-fr",
+    "h": "hi",
+    "i": "it",
+    "p": "pt-br",
+}
 SR = 24000
 GAP = 0.2  # seconds of silence between sentences
 
@@ -29,7 +35,9 @@ def models() -> list[str]:
         if not (DATA / name).exists():
             part = DATA / f"{name}.{os.getpid()}.part"
             urllib.request.urlretrieve(BASE + name, part)
-            os.replace(part, DATA / name)  # atomic: an interrupted download never looks complete
+            os.replace(
+                part, DATA / name
+            )  # atomic: an interrupted download never looks complete
     return [str(DATA / name) for name in FILES]
 
 
@@ -39,7 +47,9 @@ def clean(text: str, limit: int) -> str:
     text = re.sub(r"https?://\S+", "link", text)
     text = re.sub(r"^\s*(#+|>|[-*+]|\|)\s*", "", text, flags=re.M)
     text = re.sub(r"[`*_|~]+|<[^>]+>", "", text)
-    text = re.sub(r"(\w)[ \t]*\n+", r"\1. ", text)  # pause after headings and list items
+    text = re.sub(
+        r"(\w)[ \t]*\n+", r"\1. ", text
+    )  # pause after headings and list items
     text = re.sub(r"\s+", " ", text).strip()
     if 0 < limit < len(text):
         cut = text[:limit]
@@ -72,24 +82,37 @@ class Player:
             return len(a) / SR
         done = [j for j, x in enumerate(self.audio) if x is not None]
         chars = sum(len(self.parts[j]) for j in done)
-        rate = sum(len(self.audio[j]) / SR for j in done) / chars if chars else 0.07 / self.speed
+        rate = (
+            sum(len(self.audio[j]) / SR for j in done) / chars
+            if chars
+            else 0.07 / self.speed
+        )
         return len(self.parts[i]) * rate + GAP
 
     def synth(self) -> None:
         """Synthesize the first missing sentence from the playhead on, forever."""
         while True:
             with self.cv:
-                todo = [j for j in range(self.cur, len(self.parts)) if self.audio[j] is None]
+                todo = [
+                    j for j in range(self.cur, len(self.parts)) if self.audio[j] is None
+                ]
                 if not todo:
                     self.cv.wait()
                     continue
                 j, speed = todo[0], self.speed
             samples, _ = self.kokoro.create(
-                self.parts[j], voice=self.voice, speed=speed, lang=LANGS.get(self.voice[0], "en-us")
+                self.parts[j],
+                voice=self.voice,
+                speed=speed,
+                lang=LANGS.get(self.voice[0], "en-us"),
             )
-            audio = self.np.concatenate([samples, self.np.zeros(int(SR * GAP), "float32")])
+            audio = self.np.concatenate(
+                [samples, self.np.zeros(int(SR * GAP), "float32")]
+            )
             with self.cv:
-                if speed == self.speed:  # a speed change while synthesizing discards this one
+                if (
+                    speed == self.speed
+                ):  # a speed change while synthesizing discards this one
                     self.audio[j] = audio
                 self.cv.notify_all()
 
@@ -109,16 +132,31 @@ class Player:
         if speed != self.speed:
             with self.cv:  # resynthesize everything but the sentence now playing
                 self.speed = speed
-                self.audio = [a if i == self.cur else None for i, a in enumerate(self.audio)]
+                self.audio = [
+                    a if i == self.cur else None for i, a in enumerate(self.audio)
+                ]
                 self.cv.notify_all()
         if ctl.get("seq", 0) != last_seq and ctl.get("seek") is not None:
             self.seek(float(ctl["seek"]))
         return ctl.get("seq", 0)
 
     def status(self, done: bool = False) -> None:
-        pos = sum(self.length(i) for i in range(min(self.cur, len(self.parts)))) + self.off / SR
+        pos = (
+            sum(self.length(i) for i in range(min(self.cur, len(self.parts))))
+            + self.off / SR
+        )
         dur = sum(self.length(i) for i in range(len(self.parts)))
-        print(json.dumps({"pos": round(pos, 2), "dur": round(dur, 2), "paused": self.paused, "done": done}), flush=True)
+        print(
+            json.dumps(
+                {
+                    "pos": round(pos, 2),
+                    "dur": round(dur, 2),
+                    "paused": self.paused,
+                    "done": done,
+                }
+            ),
+            flush=True,
+        )
 
     def run(self, ctl_path: Path) -> None:
         import sounddevice as sd

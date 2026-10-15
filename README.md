@@ -20,18 +20,18 @@ Or from a shell: `claude plugin install say-back --marketplace agarun/say-back`.
 
 The first session downloads the model (about 120 MB) in the background.
 
-## The player
+## How it works
 
 When Claude finishes a reply, a player bar appears above the prompt and speech starts in about two seconds. Click a control, or press ctrl+x then Tab to focus the bar, move with the arrow keys, and press Enter.
 
-| Control    | Does                                                                                                              |
-| ---------- | ----------------------------------------------------------------------------------------------------------------- |
-| \|◀ ▶\|    | Previous and next reply (the last 20 are kept). \|◀ restarts the current reply when you're more than 3 seconds in |
-| ◀◀ ▶▶      | Back and forward 10 seconds                                                                                       |
-| ❚❚ ▶       | Pause and resume, or replay a finished reply                                                                      |
-| seekbar    | Click a spot to jump there (it can't be dragged)                                                                  |
-| vol, speed | `−` and `+`, remembered across sessions                                                                           |
-| ✕          | Stop and hide the bar until the next reply                                                                        |
+| Control    | Does                                                                                                               |
+| ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| `⏮` `⏭`  | Previous and next reply (the last 20 are kept). `⏮` restarts the current reply when you're more than 3 seconds in |
+| `⏪` `⏩`  | Back and forward 10 seconds                                                                                        |
+| `⏸` `▶`    | Pause and resume, or replay a finished reply                                                                       |
+| seekbar    | Click a spot to jump there (it can't be dragged)                                                                   |
+| vol, speed | `−` and `+`, remembered across sessions                                                                            |
+| `✕`        | Stop and hide the bar until the next reply                                                                         |
 
 New replies interrupt previous ones. Markdown is stripped and code blocks are skipped.
 
