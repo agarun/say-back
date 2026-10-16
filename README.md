@@ -39,11 +39,12 @@ New replies interrupt previous ones. Markdown is stripped and code blocks are sk
 
 Change these in `/config`, or with `/plugin configure say-back`:
 
-| Option         | Default    |                                                                                                                                                                                                       |
-| -------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Speak replies  | on         | Mute without disabling the plugin                                                                                                                                                                     |
-| Voice          | `af_heart` | Any [Kokoro voice](https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md). The first letter sets the accent (`a` US, `b` UK, `e` Spanish, `f` French, `h` Hindi, `i` Italian, `p` Portuguese) |
-| Max characters | `1500`     | Long replies stop at the last full sentence before this; `0` reads everything                                                                                                                         |
+| Option                    | Default    |                                                                                                                                                                                                       |
+| ------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Speak replies             | on         | Mute without disabling the plugin                                                                                                                                                                     |
+| Voice                     | `af_heart` | Any [Kokoro voice](https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md). The first letter sets the accent (`a` US, `b` UK, `e` Spanish, `f` French, `h` Hindi, `i` Italian, `p` Portuguese) |
+| Underline spoken sentence | off        | Best-effort underlines the sentence being read in the transcript                                                                                                                                      |
+| Max characters            | `1500`     | Long replies stop at the last full sentence before this; `0` reads everything                                                                                                                         |
 
 ## Platforms
 

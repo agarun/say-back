@@ -13,6 +13,7 @@ The mod steers playback by writing {"paused", "volume", "speed", "seek", "seq"} 
 import json
 import os
 import re
+import signal
 import sys
 import threading
 import time
@@ -41,9 +42,8 @@ def models() -> list[str]:
         if not (DATA / name).exists():
             part = DATA / f"{name}.{os.getpid()}.part"
             urllib.request.urlretrieve(BASE + name, part)
-            os.replace(
-                part, DATA / name
-            )  # atomic: an interrupted download never looks complete
+            # atomic: an interrupted download never looks complete
+            os.replace(part, DATA / name)
     return [str(DATA / name) for name in FILES]
 
 
@@ -53,9 +53,8 @@ def clean(text: str, limit: int) -> str:
     text = re.sub(r"https?://\S+", "link", text)
     text = re.sub(r"^\s*(#+|>|[-*+]|\|)\s*", "", text, flags=re.M)
     text = re.sub(r"[`*_|~]+|<[^>]+>", "", text)
-    text = re.sub(
-        r"(\w)[ \t]*\n+", r"\1. ", text
-    )  # pause after headings and list items
+    # pause after headings and list items
+    text = re.sub(r"(\w)[ \t]*\n+", r"\1. ", text)
     text = re.sub(r"\s+", " ", text).strip()
     if 0 < limit < len(text):
         cut = text[:limit]
@@ -141,9 +140,8 @@ class Player:
                 [samples, self.np.zeros(int(SR * GAP), "float32")]
             )
             with self.cv:
-                if (
-                    speed == self.speed
-                ):  # a speed change while synthesizing discards this one
+                # a speed change while synthesizing discards this one
+                if speed == self.speed:
                     self.audio[j] = audio
                 self.cv.notify_all()
 
@@ -184,6 +182,11 @@ class Player:
                     "dur": round(dur, 2),
                     "paused": self.paused,
                     "done": done,
+                    "sentence": (
+                        ""
+                        if done or self.cur >= len(self.parts)
+                        else self.parts[self.cur]
+                    ),
                 }
             ),
             flush=True,
@@ -193,8 +196,8 @@ class Player:
         import sounddevice as sd
 
         step, raw, seq, shown = SR // 10, "", 0, 0.0
-        with Speaker(), sd.OutputStream(
-            samplerate=SR, channels=1, dtype="float32"
+        with sd.OutputStream(
+            samplerate=SR, channels=1, dtype="float32", latency="high"
         ) as out:
             while self.cur < len(self.parts):
                 try:  # the mod rewrites this file; a half-written read is retried next pass
@@ -224,11 +227,14 @@ def main() -> None:
     if "--setup" in sys.argv:
         models()
         return
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     ctl = DATA / f"ctl-{os.getpid()}.json"
     try:
-        player = Player(json.load(sys.stdin))
+        req = json.load(sys.stdin)
         print(json.dumps({"ctl": str(ctl)}), flush=True)
-        player.run(ctl)
+        # Wait for our turn before loading the model, so queued sessions stay small
+        with Speaker():
+            Player(req).run(ctl)
     finally:
         ctl.unlink(missing_ok=True)
 

@@ -1,4 +1,10 @@
-export type Playback = { pos: number; dur: number; paused: boolean; done: boolean };
+export type Playback = {
+  pos: number;
+  dur: number;
+  paused: boolean;
+  done: boolean;
+  sentence?: string;
+};
 
 declare module "claude-code" {
   interface PluginState {

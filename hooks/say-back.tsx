@@ -2,6 +2,7 @@ import { atom, read, update } from "claude-code";
 import type { EngineInterface, Register } from "claude-code";
 
 import type { Playback } from "../types";
+import { type Char, locate, takeOver } from "./underline";
 
 const playback = atom({ plugin: "say-back", key: "playback" } as const, null);
 const replies = atom({ plugin: "say-back", key: "replies" } as const, []);
@@ -18,8 +19,9 @@ const clamp = (n: number, lo: number, hi: number) =>
   Math.round(Math.min(hi, Math.max(lo, n)) * 10) / 10;
 
 // The running player, outside $.state: nothing draws from it, and a reload kills the child anyway.
-let config = { voice: "af_heart", maxChars: 1500 };
+let config = { voice: "af_heart", maxChars: 1500, underline: false };
 let stop = () => {};
+let generation = 0;
 let ctl = ""; // the player's control file
 let steering = {
   paused: false,
@@ -36,8 +38,9 @@ async function steer($: EngineInterface, change: Partial<typeof steering>) {
 
 async function play($: EngineInterface, i: number, start = 0) {
   stop();
+  const mine = ++generation;
   const text = (await read($, replies))[i];
-  if (text === undefined) return;
+  if (text === undefined || mine !== generation) return;
   await update($, index, () => i);
   await update($, playback, () => ({
     pos: start,
@@ -53,6 +56,7 @@ async function play($: EngineInterface, i: number, start = 0) {
     seq: 0,
   };
   ctl = "";
+  if (mine !== generation) return;
 
   const child = $.process.spawn({
     argv: ["uv", "run", "--quiet", "--script", `${$.plugin.root}/scripts/player.py`],
@@ -65,6 +69,7 @@ async function play($: EngineInterface, i: number, start = 0) {
     }),
   });
   let isStopped = false;
+  const isLive = () => !isStopped && mine === generation;
   stop = () => {
     isStopped = true;
     void child.return({ code: null, signal: "SIGTERM" });
@@ -72,9 +77,11 @@ async function play($: EngineInterface, i: number, start = 0) {
   void (async () => {
     let buffered = "";
     let errors = "";
+    let started = false;
     try {
       for await (const { stream, text: piece } of child) {
-        if (isStopped) return;
+        started = true;
+        if (!isLive()) return;
         if (stream === "stderr") {
           errors = (errors + piece).slice(-300);
           continue;
@@ -83,18 +90,23 @@ async function play($: EngineInterface, i: number, start = 0) {
         buffered = lines.pop() ?? "";
         for (const line of lines) {
           const msg = JSON.parse(line) as { ctl?: string } & Playback;
+          if (!isLive()) return;
           if (msg.ctl) ctl = msg.ctl;
           else await update($, playback, () => msg);
         }
       }
-      if ((await child.result).code) throw new Error(errors.trim().split("\n").pop());
+      started = true;
+      const exit = await child.result.catch(() => undefined);
+      if (isLive() && exit?.code) {
+        throw new Error(errors.trim().split("\n").pop() || `player exited with ${exit.code}`);
+      }
     } catch (err) {
-      $.ui.toast(
-        `say-back couldn't play: ${err instanceof Error ? err.message : err}. Is uv installed?`,
-      );
+      if (!isLive()) return;
+      const why = err instanceof Error ? err.message : String(err);
+      $.ui.toast(`say-back couldn't play: ${why}${started ? "" : ". Is uv installed?"}`);
       return update($, playback, () => null);
     }
-    if (!isStopped) await update($, playback, (now) => now && { ...now, done: true });
+    if (isLive()) await update($, playback, (now) => now && { ...now, done: true });
   })();
 }
 
@@ -135,6 +147,7 @@ export const register: Register = (on, options) => {
   config = {
     voice: String(options.voice ?? "af_heart"),
     maxChars: Number(options.max_chars ?? 1500),
+    underline: options.underline === true,
   };
   let isOn = false; // false under `-p`, the SDK and cloud sessions
 
@@ -177,6 +190,52 @@ export const register: Register = (on, options) => {
       await steer($, { paused: true });
     }
     return next(e);
+  });
+
+  on("ui.render", { component: "AssistantMessage" }, async ($, e, next) => {
+    if (!config.underline) return next(e);
+    const now = await read($, playback);
+    if (!now?.sentence || now.done) return next(e);
+    const span = locate(e.props.text, now.sentence);
+    const part = span && takeOver(e.props.text, span);
+    if (!span || !part) return next(e);
+    const { Box, Markdown, Text } = $.ui.resolve(e);
+    const runs: (Char & { lit: boolean })[] = [];
+    for (const c of part.chars) {
+      const lit = c.at >= span[0] && c.at < span[1];
+      const prev = runs.at(-1);
+      const same = (k: keyof Char) => !prev?.[k] === !c[k];
+      if (
+        prev &&
+        prev.lit === lit &&
+        (["bold", "italic", "strikethrough", "code", "underline"] as const).every(same)
+      ) {
+        prev.ch += c.ch;
+      } else runs.push({ ...c, lit });
+    }
+    return (
+      <Box flexDirection="row" columnGap={1}>
+        {e.props.isFirstOfReply ? <Text>●</Text> : null}
+        <Box flexDirection="column" rowGap={1}>
+          {part.before ? <Markdown text={part.before} /> : null}
+          <Text>
+            {runs.map((r, n) => (
+              <Text
+                key={String(n)}
+                bold={r.bold}
+                italic={r.italic}
+                strikethrough={r.strikethrough}
+                underline={r.underline || r.lit}
+                color={r.code ? "permission" : undefined}
+              >
+                {r.ch}
+              </Text>
+            ))}
+          </Text>
+          {part.after ? <Markdown text={part.after} /> : null}
+        </Box>
+      </Box>
+    );
   });
 
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
