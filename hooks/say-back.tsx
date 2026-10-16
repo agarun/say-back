@@ -170,6 +170,15 @@ export const register: Register = (on, options) => {
     return done;
   });
 
+  on("prompt.change", { origin: { kind: "engine" } }, async ($, e, next) => {
+    const now = await read($, playback);
+    if (isOn && now && !now.paused && !now.done && e.text.trim()) {
+      await update($, playback, () => ({ ...now, paused: true }));
+      await steer($, { paused: true });
+    }
+    return next(e);
+  });
+
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
     const now = await read($, playback);
     if (!now || e.props.hasSurvey) return next(e);

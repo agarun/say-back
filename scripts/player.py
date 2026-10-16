@@ -63,6 +63,31 @@ def clean(text: str, limit: int) -> str:
     return text
 
 
+class Speaker:
+    """A lock shared by every session's player, so replies take turns instead of overlapping."""
+
+    def __enter__(self):
+        DATA.mkdir(parents=True, exist_ok=True)
+        self.f = open(DATA / "speaker.lock", "a+b")
+        while True:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    self.f.seek(0)
+                    msvcrt.locking(self.f.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(self.f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return self
+            except OSError:
+                time.sleep(0.2)
+
+    def __exit__(self, *_):
+        self.f.close()  # closing releases the lock on both platforms
+
+
 class Player:
     def __init__(self, req: dict):
         import numpy as np
@@ -168,7 +193,9 @@ class Player:
         import sounddevice as sd
 
         step, raw, seq, shown = SR // 10, "", 0, 0.0
-        with sd.OutputStream(samplerate=SR, channels=1, dtype="float32") as out:
+        with Speaker(), sd.OutputStream(
+            samplerate=SR, channels=1, dtype="float32"
+        ) as out:
             while self.cur < len(self.parts):
                 try:  # the mod rewrites this file; a half-written read is retried next pass
                     text = ctl_path.read_text()
