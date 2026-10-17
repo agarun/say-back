@@ -5,7 +5,7 @@ A Claude Code plugin that reads each of Claude's replies aloud using [Kokoro-82M
 This is meant to be paired with Claude Code's built-in `/voice` dictation for a hands-free loop where you can speak your prompt with spacebar and hear the answer.
 
 ```
-say-back 2/3  |◀   ◀◀   ❚❚   ▶▶   ▶|  0:04 ━━━━━━━━━●────────────── 0:11  −  vol 90%  +   −  1.1×  +   ✕
+say-back 2/3  |◀   ◀◀   ❚❚   ▶▶   ▶|  0:04 ━━━━━━━━━●────────────── 0:11  −  vol 90%  +   mute   −  1.1×  +   ✕
 ```
 
 ## Install
@@ -31,6 +31,7 @@ When Claude finishes a reply, a player bar appears above the prompt and speech s
 | `⏸` `▶`    | Pause and resume, or replay a finished reply                                                                       |
 | seekbar    | Click a spot to jump there (it can't be dragged)                                                                   |
 | vol, speed | `−` and `+`, remembered across sessions                                                                            |
+| `mute`     | Mutes to 0, then restores the previous volume (remembered across sessions)                                         |
 | `✕`        | Stop and hide the bar until the next reply                                                                         |
 
 New replies interrupt previous ones. Markdown is stripped and code blocks are skipped.

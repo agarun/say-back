@@ -23,6 +23,7 @@ let config = { voice: "af_heart", maxChars: 1500, underline: false };
 let stop = () => {};
 let generation = 0;
 let ctl = ""; // the player's control file
+let beforeMute = 1; // the volume to come back to when unmuting
 let steering = {
   paused: false,
   volume: 1,
@@ -143,6 +144,17 @@ async function setLevel($: EngineInterface, which: "volume" | "speed", by: numbe
   await steer($, { [which]: value });
 }
 
+async function toggleMute($: EngineInterface) {
+  const now = await read($, volume);
+  if (now > 0) {
+    beforeMute = now;
+    await $.store.set("beforeMute", now);
+  }
+  const value = await update($, volume, () => (now > 0 ? 0 : beforeMute));
+  await $.store.set("volume", value);
+  await steer($, { volume: value });
+}
+
 export const register: Register = (on, options) => {
   config = {
     voice: String(options.voice ?? "af_heart"),
@@ -156,6 +168,8 @@ export const register: Register = (on, options) => {
     if (isOn) {
       const [savedVolume, savedSpeed] = [await $.store.get("volume"), await $.store.get("speed")];
       if (typeof savedVolume === "number") await update($, volume, () => savedVolume);
+      const savedBeforeMute = await $.store.get("beforeMute");
+      if (typeof savedBeforeMute === "number" && savedBeforeMute > 0) beforeMute = savedBeforeMute;
       if (typeof savedSpeed === "number") await update($, speed, () => savedSpeed);
       // Fetch the model now so the first reply isn't silent while it downloads.
       void $.process
@@ -292,6 +306,13 @@ export const register: Register = (on, options) => {
         <Button key="vol-" plain dimColor label=" − " onPress={() => setLevel($, "volume", -0.1)} />
         <Text>vol {Math.round(vol * 100)}%</Text>
         <Button key="vol+" plain dimColor label=" + " onPress={() => setLevel($, "volume", 0.1)} />
+        <Button
+          key="mute"
+          plain
+          dimColor
+          label={vol === 0 ? " unmute " : " mute "}
+          onPress={() => toggleMute($)}
+        />
         <Button key="spd-" plain dimColor label=" − " onPress={() => setLevel($, "speed", -0.1)} />
         <Text>{rate.toFixed(1)}×</Text>
         <Button key="spd+" plain dimColor label=" + " onPress={() => setLevel($, "speed", 0.1)} />
