@@ -5,7 +5,7 @@
 """Play replies on-device
 
 stdin:  {"text", "voice", "speed", "volume", "max_chars", "start"}
-stdout: {"ctl": path} once, then {"pos", "dur", "paused", "done"} lines, four a second.
+stdout: {"ctl": path} once, then {"pos", "dur", "paused", "waiting", "done"} lines, four a second.
 The mod steers playback by writing {"paused", "volume", "speed", "seek", "seq"} to `ctl`.
 `--setup` only downloads the model.
 """
@@ -34,7 +34,7 @@ LANGS = {
 }
 SR = 24000
 GAP = 0.2  # seconds of silence between sentences
-PAUSE_GRACE = 60  # a pause this long gives up the speaker lock
+PAUSE_GRACE = 2  # a pause this long gives up the speaker lock
 
 
 def models() -> list[str]:
@@ -113,6 +113,7 @@ class Player:
         self.speed = float(req.get("speed") or 1.1)
         self.volume = float(req.get("volume") or 1.0)
         self.paused = False
+        self.waiting = False  # resumed, but another session has the speaker
         text = clean(req.get("text", ""), int(req.get("max_chars") or 0))
         self.parts = [s for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
         self.audio: list = [None] * len(self.parts)
@@ -196,6 +197,7 @@ class Player:
                     "pos": round(pos, 2),
                     "dur": round(dur, 2),
                     "paused": self.paused,
+                    "waiting": self.waiting,
                     "done": done,
                     "sentence": (
                         ""
@@ -232,7 +234,10 @@ class Player:
                         speaker.release()
                 else:
                     paused_at = 0.0
-                if not self.paused and not speaker.held and not speaker.try_acquire():
+                self.waiting = (
+                    not self.paused and not speaker.held and not speaker.try_acquire()
+                )
+                if self.waiting:
                     time.sleep(0.05)
                     continue
                 with self.cv:

@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "say-back",
   "displayName": "say-back",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "Reads Claude's replies aloud with Kokoro-82M, a fast on-device voice, with a player bar above the prompt. No API keys, nothing leaves your machine.",
   "author": {
     "name": "Aaron Agarunov"

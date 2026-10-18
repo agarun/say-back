@@ -286,6 +286,8 @@ export const register: Register = (on, options) => {
         <Button key="next" plain label=" ▶| " onPress={() => skip($, 1)} />
         {isLoading ? (
           <Text dimColor>loading voice…</Text>
+        ) : now.waiting && !now.paused ? (
+          <Text dimColor>waiting for turn…</Text>
         ) : (
           <Box flexDirection="row" columnGap={1}>
             <Text>{clock(now.pos)}</Text>

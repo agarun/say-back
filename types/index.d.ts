@@ -2,6 +2,7 @@ export type Playback = {
   pos: number;
   dur: number;
   paused: boolean;
+  waiting?: boolean;
   done: boolean;
   sentence?: string;
 };
