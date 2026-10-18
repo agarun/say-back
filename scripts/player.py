@@ -34,6 +34,7 @@ LANGS = {
 }
 SR = 24000
 GAP = 0.2  # seconds of silence between sentences
+PAUSE_GRACE = 60  # a pause this long gives up the speaker lock
 
 
 def models() -> list[str]:
@@ -65,26 +66,40 @@ def clean(text: str, limit: int) -> str:
 class Speaker:
     """A lock shared by every session's player, so replies take turns instead of overlapping."""
 
-    def __enter__(self):
+    def __init__(self):
+        self.f = None
+
+    @property
+    def held(self) -> bool:
+        return self.f is not None
+
+    def try_acquire(self) -> bool:
         DATA.mkdir(parents=True, exist_ok=True)
-        self.f = open(DATA / "speaker.lock", "a+b")
-        while True:
-            try:
-                if os.name == "nt":
-                    import msvcrt
+        f = open(DATA / "speaker.lock", "a+b")
+        try:
+            if os.name == "nt":
+                import msvcrt
 
-                    self.f.seek(0)
-                    msvcrt.locking(self.f.fileno(), msvcrt.LK_NBLCK, 1)
-                else:
-                    import fcntl
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
 
-                    fcntl.flock(self.f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                return self
-            except OSError:
-                time.sleep(0.2)
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            f.close()
+            return False
+        self.f = f
+        return True
 
-    def __exit__(self, *_):
-        self.f.close()  # closing releases the lock on both platforms
+    def acquire(self) -> None:
+        while not self.try_acquire():
+            time.sleep(0.2)
+
+    def release(self) -> None:
+        if self.f:
+            self.f.close()  # closing releases the lock on both platforms
+            self.f = None
 
 
 class Player:
@@ -192,10 +207,11 @@ class Player:
             flush=True,
         )
 
-    def run(self, ctl_path: Path) -> None:
+    def run(self, ctl_path: Path, speaker: Speaker) -> None:
         import sounddevice as sd
 
         step, raw, seq, shown = SR // 10, "", 0, 0.0
+        paused_at = 0.0
         with sd.OutputStream(
             samplerate=SR, channels=1, dtype="float32", latency="high"
         ) as out:
@@ -209,6 +225,16 @@ class Player:
                 if time.monotonic() - shown > 0.25:
                     self.status()
                     shown = time.monotonic()
+                # a long pause yields our turn; resuming queues for it again
+                if self.paused:
+                    paused_at = paused_at or time.monotonic()
+                    if time.monotonic() - paused_at > PAUSE_GRACE:
+                        speaker.release()
+                else:
+                    paused_at = 0.0
+                if not self.paused and not speaker.held and not speaker.try_acquire():
+                    time.sleep(0.05)
+                    continue
                 with self.cv:
                     audio = self.audio[self.cur]
                 if self.paused or audio is None:
@@ -229,13 +255,15 @@ def main() -> None:
         return
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     ctl = DATA / f"ctl-{os.getpid()}.json"
+    speaker = Speaker()
     try:
         req = json.load(sys.stdin)
         print(json.dumps({"ctl": str(ctl)}), flush=True)
         # Wait for our turn before loading the model, so queued sessions stay small
-        with Speaker():
-            Player(req).run(ctl)
+        speaker.acquire()
+        Player(req).run(ctl, speaker)
     finally:
+        speaker.release()
         ctl.unlink(missing_ok=True)
 
 
