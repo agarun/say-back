@@ -12,6 +12,7 @@ The mod steers playback by writing {"paused", "volume", "speed", "seek", "seq"} 
 
 import json
 import os
+import platform
 import re
 import signal
 import sys
@@ -92,10 +93,6 @@ class Speaker:
         self.f = f
         return True
 
-    def acquire(self) -> None:
-        while not self.try_acquire():
-            time.sleep(0.2)
-
     def release(self) -> None:
         if self.f:
             self.f.close()  # closing releases the lock on both platforms
@@ -111,7 +108,7 @@ class Player:
         self.kokoro = Kokoro(*models())
         self.voice = req.get("voice") or "af_heart"
         self.speed = float(req.get("speed") or 1.1)
-        self.volume = float(req.get("volume") or 1.0)
+        self.volume = float(req.get("volume", 1.0))  # 0 is muted, not missing
         self.paused = False
         self.waiting = False  # resumed, but another session has the speaker
         text = clean(req.get("text", ""), int(req.get("max_chars") or 0))
@@ -254,18 +251,51 @@ class Player:
         self.status(done=True)
 
 
+def wait_turn(ctl: Path, speaker: Speaker, start: float) -> None:
+    """Queue for the speaker before loading the model, so queued sessions stay small."""
+    shown = 0.0
+    while True:
+        try:
+            paused = bool(json.loads(ctl.read_text()).get("paused"))
+        except (OSError, ValueError):
+            paused = False
+        # like the playback loop, a paused player doesn't take the speaker
+        if not paused:
+            speaker.try_acquire()
+        waiting = not speaker.held
+        if not waiting or time.monotonic() - shown > 0.25:
+            print(
+                json.dumps(
+                    {
+                        "pos": start,
+                        "dur": 0,
+                        "paused": paused,
+                        "waiting": waiting,
+                        "done": False,
+                    }
+                ),
+                flush=True,
+            )
+            shown = time.monotonic()
+        if not waiting:
+            return
+        time.sleep(0.2)
+
+
 def main() -> None:
     if "--setup" in sys.argv:
         models()
         return
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+    # WSLg carries audio to Windows over RDP, which stutters on PulseAudio's small default buffer
+    if "microsoft" in platform.release().lower():
+        os.environ.setdefault("PULSE_LATENCY_MSEC", "100")
     ctl = DATA / f"ctl-{os.getpid()}.json"
     speaker = Speaker()
     try:
         req = json.load(sys.stdin)
         print(json.dumps({"ctl": str(ctl)}), flush=True)
-        # Wait for our turn before loading the model, so queued sessions stay small
-        speaker.acquire()
+        wait_turn(ctl, speaker, float(req.get("start") or 0))
         Player(req).run(ctl, speaker)
     finally:
         speaker.release()

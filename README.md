@@ -53,7 +53,7 @@ macOS and Windows should work out of the box.
 
 On Linux, install PortAudio (`sudo apt install libportaudio2`).
 
-On WSL2, it plays through WSLg. If you hear nothing, run `wsl --shutdown` from Windows and reopen your terminal.
+On WSL2, it plays through WSLg. If you hear nothing, run `wsl --shutdown` from Windows and reopen your terminal. If it stutters, raise the audio buffer with `export PULSE_LATENCY_MSEC=200` (the default here is 100).
 
 Say-back stays silent in `claude -p`, SDK, and cloud sessions. The model is cached in `~/.cache/say-back` (`%LOCALAPPDATA%\say-back` on Windows).
 
