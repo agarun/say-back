@@ -109,7 +109,7 @@ class Player:
         self.voice = req.get("voice") or "af_heart"
         self.speed = float(req.get("speed") or 1.1)
         self.volume = float(req.get("volume", 1.0))  # 0 is muted, not missing
-        self.paused = False
+        self.paused = bool(req.get("paused"))  # autoplay off starts paused
         self.waiting = False  # resumed, but another session has the speaker
         text = clean(req.get("text", ""), int(req.get("max_chars") or 0))
         self.parts = [s for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
@@ -251,14 +251,14 @@ class Player:
         self.status(done=True)
 
 
-def wait_turn(ctl: Path, speaker: Speaker, start: float) -> None:
+def wait_turn(ctl: Path, speaker: Speaker, start: float, paused: bool) -> None:
     """Queue for the speaker before loading the model, so queued sessions stay small."""
     shown = 0.0
     while True:
         try:
             paused = bool(json.loads(ctl.read_text()).get("paused"))
         except (OSError, ValueError):
-            paused = False
+            pass  # no steering yet: keep the starting state
         # like the playback loop, a paused player doesn't take the speaker
         if not paused:
             speaker.try_acquire()
@@ -295,7 +295,7 @@ def main() -> None:
     try:
         req = json.load(sys.stdin)
         print(json.dumps({"ctl": str(ctl)}), flush=True)
-        wait_turn(ctl, speaker, float(req.get("start") or 0))
+        wait_turn(ctl, speaker, float(req.get("start") or 0), bool(req.get("paused")))
         Player(req).run(ctl, speaker)
     finally:
         speaker.release()

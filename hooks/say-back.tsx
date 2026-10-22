@@ -1,7 +1,9 @@
 import { atom, read, update } from "claude-code";
 import type { EngineInterface, Register } from "claude-code";
 
-import type { Playback } from "../types";
+import type { Control, Playback, Seek } from "../types";
+import { controls } from "./controls";
+import { clock, headOf } from "./seekbar";
 import { type Char, locate, takeOver } from "./underline";
 
 const playback = atom({ plugin: "say-back", key: "playback" } as const, null);
@@ -11,15 +13,27 @@ const volume = atom({ plugin: "say-back", key: "volume" } as const, 1);
 const speed = atom({ plugin: "say-back", key: "speed" } as const, 1.1);
 
 const HISTORY = 20;
+// Keys pressed while the bar has the keyboard (after a click on it, until Escape). Not shown.
+const KEYS: Record<string, string> = {
+  b: "prev",
+  j: "back",
+  k: "play",
+  l: "fwd",
+  n: "next",
+  m: "mute",
+  space: "play",
+  " ": "play",
+  left: "back",
+  right: "fwd",
+};
 const MIN_SEEK_CELLS = 10;
 const MAX_SEEK_CELLS = 40;
 
-const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 const clamp = (n: number, lo: number, hi: number) =>
   Math.round(Math.min(hi, Math.max(lo, n)) * 10) / 10;
 
 // The running player, outside $.state: nothing draws from it, and a reload kills the child anyway.
-let config = { voice: "af_heart", maxChars: 1500, underline: false };
+let config = { voice: "af_heart", maxChars: 1500, underline: false, autoplay: true };
 let stop = () => {};
 let generation = 0;
 let ctl = ""; // the player's control file
@@ -37,20 +51,24 @@ async function steer($: EngineInterface, change: Partial<typeof steering>) {
   if (ctl) await $.fs.write(ctl, JSON.stringify(steering));
 }
 
-async function play($: EngineInterface, i: number, start = 0) {
+async function play($: EngineInterface, i: number, start = 0, paused = false) {
   stop();
   const mine = ++generation;
   const text = (await read($, replies))[i];
   if (text === undefined || mine !== generation) return;
+  // Another session may have muted or changed the volume since this one last read it; the store
+  // keeps the latest, so each reply starts at that level.
+  const stored = await $.store.get("volume");
+  if (typeof stored === "number") await update($, volume, () => stored);
   await update($, index, () => i);
   await update($, playback, () => ({
     pos: start,
     dur: 0,
-    paused: false,
+    paused,
     done: false,
   }));
   steering = {
-    paused: false,
+    paused,
     volume: await read($, volume),
     speed: await read($, speed),
     seek: null,
@@ -155,11 +173,31 @@ async function toggleMute($: EngineInterface) {
   await steer($, { volume: value });
 }
 
+// What each control does, by key: the bar's buttons, wherever they're drawn.
+async function act($: EngineInterface, key: string) {
+  const now = await read($, playback);
+  if (key === "prev") return skip($, -1);
+  if (key === "next") return skip($, 1);
+  if (key === "play") return toggle($);
+  if (key === "back" && now) return seek($, now.pos - 10);
+  if (key === "fwd" && now) return seek($, now.pos + 10);
+  if (key === "vol-") return setLevel($, "volume", -0.1);
+  if (key === "vol+") return setLevel($, "volume", 0.1);
+  if (key === "mute") return toggleMute($);
+  if (key === "spd-") return setLevel($, "speed", -0.1);
+  if (key === "spd+") return setLevel($, "speed", 0.1);
+  if (key === "close") {
+    stop();
+    await update($, playback, () => null);
+  }
+}
+
 export const register: Register = (on, options) => {
   config = {
     voice: String(options.voice ?? "af_heart"),
     maxChars: Number(options.max_chars ?? 1500),
     underline: options.underline === true,
+    autoplay: options.autoplay !== false,
   };
   let isOn = false; // false under `-p`, the SDK and cloud sessions
 
@@ -192,7 +230,7 @@ export const register: Register = (on, options) => {
       e.answer.trim()
     ) {
       const list = await update($, replies, (list) => [...list, e.answer].slice(-HISTORY));
-      await play($, list.length - 1);
+      await play($, list.length - 1, 0, !config.autoplay);
     }
     return done;
   });
@@ -252,40 +290,81 @@ export const register: Register = (on, options) => {
     );
   });
 
+  // The bar's Client modules post { act } for a control, { hotkey } for a key, { seek } when a
+  // drag ends.
+  on("ui.message", async ($, e, next) => {
+    const data = e.data as { act?: unknown; hotkey?: unknown; seek?: unknown };
+    const key = typeof data.act === "string" ? data.act : KEYS[String(data.hotkey)];
+    if (key) await act($, key);
+    else if (typeof data.seek === "number") await seek($, data.seek);
+    return next(e);
+  });
+
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
     const now = await read($, playback);
     if (!now || e.props.hasSurvey) return next(e);
-    const { Box, Button, Text } = $.ui.resolve(e);
+    const ui = $.ui.resolve(e);
+    const { Box, Button, Text } = ui;
     const [i, count, vol, rate] = [
       await read($, index),
       (await read($, replies)).length,
       await read($, volume),
       await read($, speed),
     ];
-    // The seekbar takes what the controls leave (about 74 cells), so the bar stays on one line.
-    const cells = Math.max(MIN_SEEK_CELLS, Math.min(MAX_SEEK_CELLS, e.props.bodyColumns - 74));
-    const head = now.dur ? Math.min(cells - 1, Math.floor((now.pos / now.dur) * cells)) : 0;
+    // The seekbar takes what the controls leave (about 92 cells), so the bar stays on one line.
+    const cells = Math.max(MIN_SEEK_CELLS, Math.min(MAX_SEEK_CELLS, e.props.bodyColumns - 92));
     const isLoading = !now.dur && !now.done;
+    const status =
+      // a reply held by autoplay-off is neither loading nor queued until play is pressed
+      (isLoading || now.waiting) && !now.paused
+        ? now.waiting
+          ? "waiting for turn…"
+          : "loading voice…"
+        : undefined;
 
     // Padded labels give the mouse a wider target; secondary controls stay dim until pointed at.
+    const left: Control[] = [
+      { key: "name", text: "say-back", accent: true },
+      { key: "count", text: `${i + 1}/${count}`, dim: true },
+      { key: "prev", label: " |◀ " },
+      { key: "back", label: " ◀◀ " },
+      { key: "play", label: now.paused || now.done ? " ▶ " : " ❚❚ " },
+      { key: "fwd", label: " ▶▶ " },
+      { key: "next", label: " ▶| " },
+    ];
+    const right: Control[] = [
+      { key: "vol-", label: " − ", dim: true },
+      { key: "vol", text: `vol ${Math.round(vol * 100)}%` },
+      { key: "vol+", label: " + ", dim: true },
+      { key: "mute", label: vol === 0 ? " unmute " : " mute ", dim: true },
+      { key: "spd-", label: " − ", dim: true },
+      { key: "spd", text: `${rate.toFixed(1)}×` },
+      { key: "spd+", label: " + ", dim: true },
+      { key: "close", label: " ✕ ", dim: true },
+    ];
+
+    // Where the surface has Clients, the whole bar is drawn in them, so clicks never select text.
+    // Ask by surface: vscode's table still lists Client but draws each as an empty box.
+    if (e.surface === "terminal" || e.surface === "desktop") {
+      const { Client } = $.ui.resolve(e);
+      // Client props are plain data: an absent status is left out, never undefined.
+      const bar: Seek = { pos: now.pos, dur: now.dur, cells, ...(status && { status }) };
+      return (
+        <Box flexDirection="row" flexWrap="wrap">
+          <Client key="left" module="./controls.tsx" props={left} />
+          <Client key="seek" module="./seekbar.tsx" props={bar} />
+          <Client key="right" module="./controls.tsx" props={right} />
+        </Box>
+      );
+    }
+
+    const head = headOf(now.pos, now.dur, cells);
+    const press = (key: string) => void act($, key);
     return (
       <Box flexDirection="row" columnGap={1} flexWrap="wrap">
-        <Text color="cyan">say-back</Text>
-        <Text dimColor>
-          {i + 1}/{count}
-        </Text>
-        <Button key="prev" plain label=" |◀ " onPress={() => skip($, -1)} />
-        <Button key="back" plain label=" ◀◀ " onPress={() => seek($, now.pos - 10)} />
-        <Button
-          key="play"
-          plain
-          label={now.paused || now.done ? " ▶ " : " ❚❚ "}
-          onPress={() => toggle($)}
-        />
-        <Button key="fwd" plain label=" ▶▶ " onPress={() => seek($, now.pos + 10)} />
-        <Button key="next" plain label=" ▶| " onPress={() => skip($, 1)} />
-        {isLoading || (now.waiting && !now.paused) ? (
-          <Text dimColor>{now.waiting ? "waiting for turn…" : "loading voice…"}</Text>
+        {controls(ui, left, press)}
+        {status ? (
+          <Text dimColor>{status}</Text>
         ) : (
           <Box flexDirection="row" columnGap={1}>
             <Text>{clock(now.pos)}</Text>
@@ -303,29 +382,7 @@ export const register: Register = (on, options) => {
             <Text>{clock(now.dur)}</Text>
           </Box>
         )}
-        <Button key="vol-" plain dimColor label=" − " onPress={() => setLevel($, "volume", -0.1)} />
-        <Text>vol {Math.round(vol * 100)}%</Text>
-        <Button key="vol+" plain dimColor label=" + " onPress={() => setLevel($, "volume", 0.1)} />
-        <Button
-          key="mute"
-          plain
-          dimColor
-          label={vol === 0 ? " unmute " : " mute "}
-          onPress={() => toggleMute($)}
-        />
-        <Button key="spd-" plain dimColor label=" − " onPress={() => setLevel($, "speed", -0.1)} />
-        <Text>{rate.toFixed(1)}×</Text>
-        <Button key="spd+" plain dimColor label=" + " onPress={() => setLevel($, "speed", 0.1)} />
-        <Button
-          key="close"
-          plain
-          dimColor
-          label=" ✕ "
-          onPress={async () => {
-            stop();
-            await update($, playback, () => null);
-          }}
-        />
+        {controls(ui, right, press)}
       </Box>
     );
   });

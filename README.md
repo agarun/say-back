@@ -22,14 +22,14 @@ The first session downloads the model (about 120 MB) in the background.
 
 ## How it works
 
-When Claude finishes a reply, a player bar appears above the prompt and speech starts in about two seconds. Click a control, or press ctrl+x then Tab to focus the bar, move with the arrow keys, and press Enter.
+When Claude finishes a reply, a player bar appears above the prompt and speech starts in about two seconds. Click a control. For the keyboard, click the bar, then press `b` `j` `k` `l` `n` `m`, space to pause, and ← → to skip 10 seconds. Escape hands typing back to the prompt.
 
 | Control    | Does                                                                                                               |
 | ---------- | ------------------------------------------------------------------------------------------------------------------ |
 | `⏮` `⏭`  | Previous and next reply (the last 20 are kept). `⏮` restarts the current reply when you're more than 3 seconds in |
 | `⏪` `⏩`  | Back and forward 10 seconds                                                                                        |
 | `⏸` `▶`    | Pause and resume, or replay a finished reply                                                                       |
-| seekbar    | Click a spot to jump there (it can't be dragged)                                                                   |
+| seekbar    | Click a spot to jump there, or drag the head                                                                       |
 | vol, speed | `−` and `+`, remembered across sessions                                                                            |
 | `mute`     | Mutes to 0, then restores the previous volume (remembered across sessions)                                         |
 | `✕`        | Stop and hide the bar until the next reply                                                                         |
@@ -43,6 +43,7 @@ Change these in `/config`, or with `/plugin configure say-back`:
 | Option                    | Default    |                                                                                                                                                                                                       |
 | ------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Speak replies             | on         | Mute without disabling the plugin                                                                                                                                                                     |
+| Autoplay replies          | on         | Off holds each new reply paused until you press play                                                                                                                                                  |
 | Voice                     | `af_heart` | Any [Kokoro voice](https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md). The first letter sets the accent (`a` US, `b` UK, `e` Spanish, `f` French, `h` Hindi, `i` Italian, `p` Portuguese) |
 | Underline spoken sentence | off        | Best-effort underlines the sentence being read in the transcript                                                                                                                                      |
 | Max characters            | `1500`     | Long replies stop at the last full sentence before this; `0` reads everything                                                                                                                         |
@@ -64,7 +65,7 @@ claude plugin validate --strict .
 claude --plugin-dir .
 ```
 
-Edits reload when you save. The player bar is a [mod](https://code.claude.com/docs/en/plugins/mods/overview) in `hooks/say-back.tsx`, and `scripts/player.py` does the speaking.
+Edits reload when you save. The player bar is a [mod](https://code.claude.com/docs/en/plugins/mods/overview) in `hooks/say-back.tsx`. The bar itself is drawn by two `Client` modules, `hooks/controls.tsx` and `hooks/seekbar.tsx`, so the mod gets the pointer and the transcript doesn't select text. VS Code and mobile have no `Client`, so the hooks module draws the same controls there as plain buttons. `scripts/player.py` does the speaking. `claude plugin test .` runs `tests/`.
 
 ## License
 
